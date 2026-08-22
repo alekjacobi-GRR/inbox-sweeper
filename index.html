@@ -290,9 +290,23 @@ async function batchMarkRead(ids){
     await gmail('/messages/batchModify', { method:'POST', body: JSON.stringify({ ids: ids.slice(i,i+900), removeLabelIds:['UNREAD'] }) });
   }
 }
+async function findExistingFilterId(fromEmail){
+  try{
+    const d = await gmail('/settings/filters');
+    const f = (d.filter||[]).find(x => x.criteria && x.criteria.from === fromEmail);
+    return f ? f.id : null;
+  }catch(e){ return null; }
+}
 async function createAutoReadFilter(fromEmail){
-  const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{removeLabelIds:['UNREAD']} }) });
-  return f.id;
+  try{
+    const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{removeLabelIds:['UNREAD']} }) });
+    return f.id;
+  }catch(e){
+    // a rule for this sender (or a re-swipe of one already ruled) can hit "filter already exists" —
+    // that's fine, reuse the existing filter instead of failing the whole action.
+    if (/already exists/i.test(e.message)) return await findExistingFilterId(fromEmail);
+    throw e;
+  }
 }
 async function batchTrash(ids){
   for (let i=0;i<ids.length;i+=900){
@@ -301,8 +315,13 @@ async function batchTrash(ids){
 }
 async function createAutoDeleteFilter(fromEmail){
   // same as Gmail's own "Delete it" filter action: add TRASH, remove INBOX on every matching new message
-  const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{addLabelIds:['TRASH'], removeLabelIds:['INBOX']} }) });
-  return f.id;
+  try{
+    const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{addLabelIds:['TRASH'], removeLabelIds:['INBOX']} }) });
+    return f.id;
+  }catch(e){
+    if (/already exists/i.test(e.message)) return await findExistingFilterId(fromEmail);
+    throw e;
+  }
 }
 async function deleteFilterSafe(filterId){ if(!filterId) return; try{ await gmail(`/settings/filters/${filterId}`, {method:'DELETE'}); }catch(e){} }
 function parseUnsub(listUnsub){
