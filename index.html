@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Inbox Sweeper — Web</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --bg:#f6f8fc; --card:#ffffff; --ink:#1f1f1f; --sub:#5f6368;
+    --red:#ea4335; --green:#188038; --blue:#1a73e8; --amber:#f9ab00;
+    --shadow:0 1px 3px rgba(60,64,67,.15), 0 8px 24px rgba(60,64,67,.15);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;}
+  body{font-family:'Google Sans',Roboto,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;}
+  header{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #e0e3e7;flex-shrink:0;z-index:5;}
+  .logo{display:flex;align-items:center;gap:8px;font-size:19px;font-weight:500;}
+  .logo .m{width:30px;height:30px;border-radius:8px;background:conic-gradient(from 200deg,#ea4335,#fbbc04,#34a853,#1a73e8,#ea4335);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;}
+  .counts{margin-left:auto;font-size:13px;color:var(--sub);text-align:right;line-height:1.3;}
+  .link{font-size:13px;font-weight:600;color:var(--blue);cursor:pointer;background:none;border:none;font-family:inherit;}
+  .progress{height:4px;background:#e0e3e7;flex-shrink:0;}
+  .progress i{display:block;height:100%;width:0%;background:var(--blue);transition:width .3s ease;border-radius:0 2px 2px 0;}
+  .hints{display:flex;justify-content:space-between;padding:8px 20px;flex-shrink:0;font-size:12px;font-weight:600;letter-spacing:.3px;}
+  .hints .l{color:var(--red);} .hints .r{color:var(--green);}
+
+  /* screens */
+  .screen{flex:1;overflow:hidden;display:none;flex-direction:column;}
+  .screen.active{display:flex;}
+  .center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;}
+  .center h1{font-size:24px;margin-bottom:10px;}
+  .center p{font-size:14.5px;color:var(--sub);line-height:1.5;max-width:340px;margin-bottom:18px;}
+  .gbtn{background:var(--blue);color:#fff;border:none;padding:14px 30px;border-radius:26px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:var(--shadow);font-family:inherit;}
+  .gbtn:active{transform:scale(.97);}
+  .fine{font-size:12px;color:#80868b;margin-top:16px;max-width:320px;}
+  .spinner{width:40px;height:40px;border:4px solid #e0e3e7;border-top-color:var(--blue);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* stage */
+  .stage{flex:1;position:relative;margin:4px 16px 4px;touch-action:none;min-height:0;}
+  .card{position:absolute;inset:0;max-height:520px;margin:auto;background:var(--card);border-radius:20px;box-shadow:var(--shadow);padding:20px 20px 16px;display:flex;flex-direction:column;cursor:grab;user-select:none;will-change:transform;}
+  .card.dragging{cursor:grabbing;transition:none;}
+  .card.behind{transform:scale(.95) translateY(14px);filter:brightness(.97);pointer-events:none;}
+  .card.behind2{transform:scale(.9) translateY(28px);filter:brightness(.94);pointer-events:none;}
+  .from{display:flex;align-items:center;gap:12px;}
+  .avatar{width:46px;height:46px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:19px;font-weight:600;}
+  .from .who{min-width:0;}
+  .from .name{font-size:16.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .from .addr{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .meta{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap;}
+  .chip{font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;background:#e8f0fe;color:#1967d2;}
+  .chip.ok{background:#e6f4ea;color:#137333;}
+  .chip.warn{background:#fef7e0;color:#b06000;}
+  .subjects{margin-top:12px;flex:1;overflow:hidden;}
+  .subjects h4{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--sub);margin-bottom:6px;}
+  .subj{padding:7px 0;border-bottom:1px solid #f1f3f4;}
+  .subj .s{font-size:13.5px;font-weight:500;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .subj .p{font-size:12px;color:var(--sub);margin-top:2px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;}
+  .stamp{position:absolute;top:24px;padding:7px 14px;border-radius:8px;font-size:20px;font-weight:800;letter-spacing:1px;border:3px solid;opacity:0;transform:rotate(-14deg);pointer-events:none;background:rgba(255,255,255,.85);}
+  .stamp.no{left:16px;color:var(--red);border-color:var(--red);}
+  .stamp.yes{right:16px;color:var(--green);border-color:var(--green);transform:rotate(14deg);}
+
+  .actions{display:flex;justify-content:center;align-items:center;gap:16px;padding:4px 0 6px;flex-shrink:0;}
+  .btn{border:none;border-radius:50%;cursor:pointer;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;background:#fff;transition:transform .12s ease;}
+  .btn:active{transform:scale(.9);}
+  .btn.big{width:58px;height:58px;font-size:24px;}
+  .btn.small{width:44px;height:44px;font-size:13px;color:var(--sub);font-weight:700;}
+  .btn.unsub{color:var(--red);} .btn.read{color:var(--green);}
+
+  /* live log */
+  .log{flex-shrink:0;max-height:96px;overflow-y:auto;margin:0 16px 10px;background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:8px 12px;}
+  .log .row{font-size:12px;padding:4px 0;border-bottom:1px solid #f1f3f4;display:flex;gap:6px;align-items:flex-start;}
+  .log .row:last-child{border:none;}
+  .log .row.ok{color:#137333;} .log .row.warn{color:#b06000;} .log .row.err{color:#c5221f;} .log .row.info{color:var(--sub);}
+  .log .row b{font-weight:600;flex-shrink:0;}
+  .log-empty{font-size:12px;color:var(--sub);text-align:center;padding:6px 0;}
+
+  /* duration sheet */
+  .overlay{position:fixed;inset:0;background:rgba(32,33,36,.5);z-index:20;display:none;align-items:flex-end;justify-content:center;}
+  .overlay.show{display:flex;}
+  .sheet{background:#fff;border-radius:24px 24px 0 0;width:100%;max-width:520px;padding:24px 20px 34px;animation:up .22s ease;}
+  @keyframes up{from{transform:translateY(60px);opacity:.4;}to{transform:none;opacity:1;}}
+  .sheet h3{font-size:18px;margin-bottom:4px;}
+  .sheet p{font-size:13.5px;color:var(--sub);margin-bottom:16px;}
+  .durs{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .dur{padding:16px 10px;border:1.5px solid #dadce0;border-radius:14px;background:#fff;font-size:15px;font-weight:600;cursor:pointer;text-align:center;font-family:inherit;}
+  .dur small{display:block;font-weight:400;font-size:11.5px;color:var(--sub);margin-top:3px;}
+  .dur:active{background:#e8f0fe;border-color:var(--blue);}
+  .dur.forever{grid-column:1/-1;background:#e6f4ea;border-color:#188038;color:#0d652d;}
+  .cancel{margin-top:14px;width:100%;padding:12px;border:none;background:none;color:var(--blue);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+
+  /* rules & done screens */
+  .list{flex:1;overflow-y:auto;padding:16px 20px 30px;}
+  .rule{background:#fff;border-radius:14px;box-shadow:var(--shadow);padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;}
+  .rule .info{flex:1;min-width:0;}
+  .rule .n{font-size:14.5px;font-weight:600;}
+  .rule .d{font-size:12px;color:var(--sub);margin-top:2px;}
+  .stopbtn{border:none;background:none;color:var(--red);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;}
+  .redo{margin:16px 20px 0;padding:13px;border:1.5px solid #dadce0;border-radius:14px;background:#fff;color:var(--ink);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="m">✉</div>Inbox Sweeper</div>
+  <div class="counts" id="counts"></div>
+  <button class="link" id="rulesLink" style="display:none">rules</button>
+</header>
+<div class="progress"><i id="bar"></i></div>
+
+<!-- SIGN IN -->
+<div class="screen active" id="scr-signin">
+  <div class="center">
+    <h1>Sweep your inbox</h1>
+    <p>Swipe left to unsubscribe. Swipe right to auto-mark a sender's email as read — for a week, a month, or until you say otherwise. Everything runs directly between this page and Google — nothing passes through Claude.</p>
+    <button class="gbtn" id="signInBtn">Sign in with Google</button>
+    <p class="fine" id="signinNote">Loading Google Sign-In…</p>
+  </div>
+</div>
+
+<!-- SCANNING -->
+<div class="screen" id="scr-scan">
+  <div class="center">
+    <div class="spinner"></div>
+    <p id="scanProgress">Finding bulk mail…</p>
+  </div>
+</div>
+
+<!-- DECK -->
+<div class="screen" id="scr-deck">
+  <div class="hints"><span class="l">← swipe left = UNSUBSCRIBE</span><span class="r">swipe right = AUTO-READ →</span></div>
+  <div class="stage" id="stage"></div>
+  <div class="actions">
+    <button class="btn small" id="undoBtn">↩</button>
+    <button class="btn big unsub" id="noBtn">✕</button>
+    <button class="btn small" id="skipBtn">keep</button>
+    <button class="btn big read" id="yesBtn">✓</button>
+    <button class="btn small" id="doneBtn">🏁</button>
+  </div>
+  <div class="log" id="log"><div class="log-empty">Actions will show up here as you swipe — live, in real time.</div></div>
+</div>
+
+<!-- RULES -->
+<div class="screen" id="scr-rules">
+  <div class="list" id="rulesList"></div>
+</div>
+
+<!-- DONE -->
+<div class="screen" id="scr-done">
+  <div class="list">
+    <h1 style="margin-bottom:8px;">Sweep complete 🎉</h1>
+    <p style="color:var(--sub);font-size:14px;margin-bottom:16px;">Everything below already happened for real — check your Gmail.</p>
+    <div id="doneLog"></div>
+  </div>
+  <button class="redo" id="redoBtn">Scan again</button>
+</div>
+
+<!-- Duration sheet -->
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <h3 id="sheetTitle">Auto-read</h3>
+    <p id="sheetSub"></p>
+    <div class="durs">
+      <button class="dur" data-days="7" data-label="1 week">1 week<small>quick mute</small></button>
+      <button class="dur" data-days="30" data-label="1 month">1 month<small>a breather</small></button>
+      <button class="dur" data-days="90" data-label="3 months">3 months<small>long break</small></button>
+      <button class="dur" data-days="180" data-label="6 months">6 months<small>almost gone</small></button>
+      <button class="dur forever" data-days="" data-label="until you say otherwise">♾ Until I say otherwise</button>
+    </div>
+    <button class="cancel" id="sheetCancel">Cancel</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — paste your Google OAuth Web Client ID here.
+   See SETUP-WEB.md for how to get one (~10 minutes, one time).
+   ============================================================ */
+const CLIENT_ID = "PASTE_YOUR_WEB_CLIENT_ID.apps.googleusercontent.com";
+const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.settings.basic";
+const SCAN_QUERY = "{category:promotions category:updates} newer_than:30d";
+const RULES_KEY = "sweeper.rules.v2";
+
+let accessToken = null;
+let myEmail = "";
+let tokenClient = null;
+let senders = [];
+let idx = 0;
+let history = [];
+let rules = [];
+
+/* ---------- tiny DOM helpers ---------- */
+const $ = (id) => document.getElementById(id);
+function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); $(id).classList.add('active'); }
+function logRow(kind, html){
+  const box = $('log');
+  if (box.querySelector('.log-empty')) box.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'row ' + kind;
+  row.innerHTML = html;
+  box.appendChild(row);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ---------- Google Sign-In ---------- */
+window.addEventListener('load', () => {
+  const wait = setInterval(() => {
+    if (window.google && google.accounts && google.accounts.oauth2) {
+      clearInterval(wait);
+      initAuth();
+    }
+  }, 100);
+});
+function initAuth(){
+  if (CLIENT_ID.startsWith("PASTE_")) {
+    $('signinNote').textContent = "⚠ Open index.html and paste your Google Client ID into CLIENT_ID first. See SETUP-WEB.md.";
+    $('signInBtn').disabled = true;
+    $('signInBtn').style.opacity = 0.5;
+    return;
+  }
+  $('signinNote').textContent = "You'll be asked to approve read/modify access to Gmail.";
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) { $('signinNote').textContent = "Sign-in failed: " + resp.error; return; }
+      accessToken = resp.access_token;
+      boot();
+    },
+  });
+  $('signInBtn').addEventListener('click', () => tokenClient.requestAccessToken({ prompt: '' }));
+}
+
+/* ---------- Gmail REST helpers (direct browser fetch, no middleman) ---------- */
+const GBASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
+async function gmail(path, opts={}){
+  const res = await fetch(GBASE+path, { ...opts, headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json', ...(opts.headers||{}) }});
+  if (!res.ok) { const t = await res.text(); throw new Error(res.status+': '+t.slice(0,200)); }
+  if (res.status===204) return null;
+  return res.json();
+}
+async function listIds(query, max=250){
+  let ids=[], pageToken;
+  while (ids.length<max){
+    const q=encodeURIComponent(query), pt=pageToken?`&pageToken=${pageToken}`:'';
+    const d = await gmail(`/messages?q=${q}&maxResults=100${pt}`);
+    ids = ids.concat((d.messages||[]).map(m=>m.id));
+    pageToken = d.nextPageToken;
+    if (!pageToken) break;
+  }
+  return ids.slice(0,max);
+}
+const HDRS='metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe&metadataHeaders=List-Unsubscribe-Post';
+async function getMeta(id){
+  const m = await gmail(`/messages/${id}?format=metadata&${HDRS}`);
+  const h={}; for(const x of (m.payload?.headers||[])) h[x.name.toLowerCase()]=x.value;
+  return { id:m.id, threadId:m.threadId, labelIds:m.labelIds||[], from:h['from']||'', subject:h['subject']||'(no subject)',
+    listUnsub:h['list-unsubscribe']||'', listUnsubPost:h['list-unsubscribe-post']||'', snippet:m.snippet||'' };
+}
+async function getAllMeta(ids, onProgress){
+  const out=[]; let i=0; const POOL=8;
+  async function worker(){ while(i<ids.length){ const id=ids[i++]; try{ out.push(await getMeta(id)); }catch(e){} if(onProgress) onProgress(out.length, ids.length); } }
+  await Promise.all(Array.from({length:POOL}, worker));
+  return out;
+}
+function parseFrom(from){
+  const m = from.match(/^(?:"?([^"<]*)"?\s*)?<([^>]+)>/);
+  if (m) return { name:(m[1]||'').trim()||m[2], email:m[2].toLowerCase() };
+  return { name:from, email:from.toLowerCase().trim() };
+}
+function groupBySender(metas){
+  const map=new Map();
+  for (const m of metas){
+    const {name,email}=parseFrom(m.from); if(!email) continue;
+    if(!map.has(email)) map.set(email,{email,name,count:0,unreadIds:[],allIds:[],subjects:[],listUnsub:'',listUnsubPost:''});
+    const s=map.get(email); s.count++; s.allIds.push(m.id);
+    if(m.labelIds.includes('UNREAD')) s.unreadIds.push(m.id);
+    if(s.subjects.length<3) s.subjects.push({subject:m.subject,snippet:m.snippet});
+    if(!s.listUnsub && m.listUnsub){ s.listUnsub=m.listUnsub; s.listUnsubPost=m.listUnsubPost; }
+  }
+  return [...map.values()].sort((a,b)=>b.count-a.count);
+}
+async function batchMarkRead(ids){
+  for (let i=0;i<ids.length;i+=900){
+    await gmail('/messages/batchModify', { method:'POST', body: JSON.stringify({ ids: ids.slice(i,i+900), removeLabelIds:['UNREAD'] }) });
+  }
+}
+async function createAutoReadFilter(fromEmail){
+  const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{removeLabelIds:['UNREAD']} }) });
+  return f.id;
+}
+async function deleteFilterSafe(filterId){ try{ await gmail(`/settings/filters/${filterId}`, {method:'DELETE'}); }catch(e){} }
+function parseUnsub(listUnsub){
+  const urls=[...listUnsub.matchAll(/<([^>]+)>/g)].map(m=>m[1]);
+  return { https: urls.find(u=>u.startsWith('http')), mailto: urls.find(u=>u.startsWith('mailto:')) };
+}
+function b64url(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+async function sendUnsubEmail(mailtoUrl){
+  const u = mailtoUrl.replace(/^mailto:/,''); const [addr,qs] = u.split('?');
+  const params = new URLSearchParams(qs||''); const subject = params.get('subject')||'unsubscribe'; const body = params.get('body')||'unsubscribe';
+  const raw = b64url(`From: ${myEmail}\r\nTo: ${decodeURIComponent(addr)}\r\nSubject: ${subject}\r\n\r\n${body}`);
+  await gmail('/messages/send', { method:'POST', body: JSON.stringify({raw}) });
+}
+
+/* ---------- rules storage (this browser only) ---------- */
+function loadRules(){ try{ return JSON.parse(localStorage.getItem(RULES_KEY)||'[]'); }catch(e){ return []; } }
+function saveRules(r){ localStorage.setItem(RULES_KEY, JSON.stringify(r)); }
+async function expireRules(){
+  const now = Date.now(); const keep=[];
+  for (const r of loadRules()){
+    if (r.expiresAt && r.expiresAt < now) await deleteFilterSafe(r.filterId);
+    else keep.push(r);
+  }
+  saveRules(keep); return keep;
+}
+
+/* ---------- boot / scan ---------- */
+async function boot(){
+  show('scr-scan');
+  try{
+    const prof = await gmail('/profile'); myEmail = prof.emailAddress;
+    rules = await expireRules();
+    $('scanProgress').textContent = 'Finding bulk mail…';
+    const ids = await listIds(SCAN_QUERY, 250);
+    const metas = await getAllMeta(ids, (d,t)=>{ $('scanProgress').textContent = `Reading headers ${d}/${t}`; });
+    const ruleEmails = new Set(rules.map(r=>r.email));
+    senders = groupBySender(metas).filter(s=>!ruleEmails.has(s.email));
+    idx=0; history=[];
+    $('rulesLink').style.display = '';
+    render();
+  }catch(e){
+    alert('Scan failed: '+e.message);
+    show('scr-signin');
+  }
+}
+
+/* ---------- swipe deck rendering ---------- */
+const AV=['#1a73e8','#188038','#d93025','#f9ab00','#9334e6','#e8710a','#007b83','#b31412','#3949ab','#00897b'];
+function avColor(s){ let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))>>>0; return AV[h%AV.length]; }
+function makeCard(i,depth){
+  const d = senders[i]; const el = document.createElement('div');
+  el.className = 'card'+(depth===1?' behind':depth===2?' behind2':'');
+  const init = (d.name.replace(/[^A-Za-z0-9 ]/g,'').trim()[0]||'?').toUpperCase();
+  el.innerHTML = `
+    <div class="from"><div class="avatar" style="background:${avColor(d.email)}">${init}</div>
+      <div class="who"><div class="name">${d.name}</div><div class="addr">${d.email}</div></div></div>
+    <div class="meta"><span class="chip">${d.count} email${d.count>1?'s':''} / 30 days</span>
+      ${d.listUnsub?'<span class="chip ok">unsubscribe available</span>':'<span class="chip warn">no unsubscribe found</span>'}</div>
+    <div class="subjects"><h4>Recent emails</h4>
+      ${d.subjects.map(x=>`<div class="subj"><div class="s">${escapeHtml(x.subject)}</div><div class="p">${escapeHtml(x.snippet||'')}</div></div>`).join('')}
+    </div>
+    <div class="stamp no">UNSUB</div><div class="stamp yes">AUTO-READ</div>`;
+  return el;
+}
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function render(){
+  const stage = $('stage'); stage.innerHTML='';
+  if (idx>=senders.length){ finish(); return; }
+  show('scr-deck');
+  for (let depth=Math.min(2,senders.length-1-idx); depth>=0; depth--) stage.appendChild(makeCard(idx+depth, depth));
+  $('counts').textContent = `${idx+1} / ${senders.length}`;
+  $('bar').style.width = (idx/senders.length*100)+'%';
+  attachDrag(stage.lastElementChild);
+}
+function attachDrag(card){
+  if (!card) return;
+  let sx=0,sy=0,dx=0,drag=false;
+  const no=card.querySelector('.stamp.no'), yes=card.querySelector('.stamp.yes');
+  const down=e=>{drag=true;card.classList.add('dragging');const p=e.touches?e.touches[0]:e;sx=p.clientX;sy=p.clientY;};
+  const move=e=>{ if(!drag)return; const p=e.touches?e.touches[0]:e; dx=p.clientX-sx; const dy=p.clientY-sy;
+    card.style.transform=`translate(${dx}px,${dy*0.35}px) rotate(${dx/16}deg)`;
+    no.style.opacity=Math.min(1,Math.max(0,-dx/90)); yes.style.opacity=Math.min(1,Math.max(0,dx/90));
+    if(e.cancelable) e.preventDefault(); };
+  const up=()=>{ if(!drag)return; drag=false; card.classList.remove('dragging');
+    if(dx<-100){ fly(card,-1); doUnsub(); }
+    else if(dx>100){ fly(card,1); openSheet(); }
+    else{ card.style.transition='transform .25s ease'; card.style.transform=''; no.style.opacity=0; yes.style.opacity=0; setTimeout(()=>card.style.transition='',260); }
+    dx=0; };
+  card.addEventListener('mousedown',down); card.addEventListener('touchstart',down,{passive:true});
+  window.addEventListener('mousemove',move); window.addEventListener('touchmove',move,{passive:false});
+  window.addEventListener('mouseup',up); window.addEventListener('touchend',up);
+}
+function fly(card,dir){ card.style.transition='transform .35s ease, opacity .35s ease'; card.style.transform=`translate(${dir*window.innerWidth*1.2}px,-40px) rotate(${dir*22}deg)`; card.style.opacity='0'; }
+function topCard(){ return $('stage').lastElementChild; }
+function advance(){ idx++; history.push(idx-1); setTimeout(render,180); }
+
+/* ---------- real actions ---------- */
+async function doUnsub(){
+  const s = senders[idx]; advance();
+  logRow('info', `<b>${s.name}</b> — unsubscribing…`);
+  try{
+    const {https,mailto} = parseUnsub(s.listUnsub||'');
+    if (https){
+      // open a blank tab NOW (still inside the user-gesture chain) then navigate it —
+      // this is the reliable path since most unsubscribe endpoints block cross-origin fetch (CORS).
+      const w = window.open('', '_blank');
+      if (w) { w.location.href = https; }
+      logRow('ok', `<b>${s.name}</b> — opened their unsubscribe page in a new tab. Confirm there if it asks.`);
+      if (/one-?click/i.test(s.listUnsubPost||'')) {
+        // try the silent one-click POST too — works for senders whose endpoint allows it
+        try { await fetch(https, {method:'POST', mode:'no-cors', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'List-Unsubscribe=One-Click'}); } catch(e){}
+      }
+    } else if (mailto) {
+      await sendUnsubEmail(mailto);
+      logRow('ok', `<b>${s.name}</b> — unsubscribe email sent ✓`);
+    } else {
+      logRow('warn', `<b>${s.name}</b> — no unsubscribe method found in their emails. Skipped.`);
+    }
+  } catch(e) {
+    logRow('err', `<b>${s.name}</b> — failed: ${e.message}`);
+  }
+}
+let pendingDur = null;
+function openSheet(){
+  const s = senders[idx];
+  $('sheetTitle').textContent = `Auto-read "${s.name}"`;
+  $('sheetSub').textContent = `${s.count} existing email${s.count>1?'s':''} get marked read now, and every new one from ${s.email} arrives already read. For how long?`;
+  $('overlay').classList.add('show');
+}
+document.querySelectorAll('.dur').forEach(b=>b.addEventListener('click', async ()=>{
+  $('overlay').classList.remove('show');
+  const days = b.dataset.days ? parseInt(b.dataset.days,10) : null;
+  const label = b.dataset.label;
+  const s = senders[idx]; advance();
+  logRow('info', `<b>${s.name}</b> — setting up auto-read (${label})…`);
+  try{
+    const filterId = await createAutoReadFilter(s.email);
+    if (s.allIds.length) await batchMarkRead(s.allIds);
+    const rule = { email:s.email, name:s.name, filterId, createdAt: Date.now(), expiresAt: days ? Date.now()+days*86400000 : null };
+    rules.push(rule); saveRules(rules);
+    logRow('ok', `<b>${s.name}</b> — ${s.allIds.length} email${s.allIds.length!==1?'s':''} marked read, auto-read rule live in Gmail ✓`);
+  }catch(e){
+    logRow('err', `<b>${s.name}</b> — failed: ${e.message}`);
+  }
+}));
+$('sheetCancel').addEventListener('click', ()=>{ $('overlay').classList.remove('show'); render(); });
+
+$('noBtn').addEventListener('click', ()=>{ const c=topCard(); if(!c)return; fly(c,-1); doUnsub(); });
+$('yesBtn').addEventListener('click', ()=>{ if(!topCard())return; openSheet(); });
+$('skipBtn').addEventListener('click', ()=>{ const c=topCard(); if(!c)return; c.style.transition='transform .3s ease,opacity .3s ease'; c.style.transform='translateY(-60px)'; c.style.opacity='0'; logRow('info', `Kept <b>${senders[idx].name}</b>`); advance(); });
+$('undoBtn').addEventListener('click', ()=>{ if(!history.length)return; idx=history.pop(); logRow('info','Undid last action (note: any Gmail change already made was NOT reversed — undo only rewinds the card).'); render(); });
+$('doneBtn').addEventListener('click', ()=>{ idx=senders.length; finish(); });
+
+/* ---------- rules screen ---------- */
+$('rulesLink').addEventListener('click', ()=>{ renderRules(); show('scr-rules'); });
+function renderRules(){
+  const box = $('rulesList'); box.innerHTML = `<h1 style="margin-bottom:12px;">Auto-read rules</h1>`;
+  if (!rules.length) { box.innerHTML += `<p style="color:var(--sub);font-size:14px;">No active rules.</p>`; }
+  for (const r of rules){
+    const days = r.expiresAt ? Math.max(0, Math.ceil((r.expiresAt-Date.now())/86400000)) : null;
+    const div = document.createElement('div'); div.className='rule';
+    div.innerHTML = `<div class="info"><div class="n">${r.name}</div><div class="d">${r.email} · ${days===null?'∞ until you stop it':(days+' day'+(days!==1?'s':'')+' left')}</div></div>`;
+    const btn = document.createElement('button'); btn.className='stopbtn'; btn.textContent='stop';
+    btn.addEventListener('click', async ()=>{ await deleteFilterSafe(r.filterId); rules = rules.filter(x=>x.email!==r.email); saveRules(rules); renderRules(); });
+    div.appendChild(btn); box.appendChild(div);
+  }
+  const back = document.createElement('button'); back.className='redo'; back.textContent='Back to sweep';
+  back.style.margin='16px 0 0'; back.addEventListener('click', ()=>{ idx<senders.length?show('scr-deck'):show('scr-done'); });
+  box.appendChild(back);
+}
+
+/* ---------- done screen ---------- */
+function finish(){
+  $('bar').style.width='100%';
+  const box = $('doneLog'); box.innerHTML='';
+  const rows = document.querySelectorAll('#log .row');
+  if (!rows.length) box.innerHTML = '<p style="color:var(--sub)">Nothing was swiped this round.</p>';
+  rows.forEach(r=>box.appendChild(r.cloneNode(true)));
+  show('scr-done');
+}
+$('redoBtn').addEventListener('click', boot);
+</script>
+</body>
+</html>
