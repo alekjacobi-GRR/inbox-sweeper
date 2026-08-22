@@ -51,6 +51,10 @@
   .chip{font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;background:#e8f0fe;color:#1967d2;}
   .chip.ok{background:#e6f4ea;color:#137333;}
   .chip.warn{background:#fef7e0;color:#b06000;}
+  .chip.rec.conf-high{background:#e6f4ea;color:#137333;}
+  .chip.rec.conf-medium{background:#fef7e0;color:#b06000;}
+  .chip.rec.conf-low{background:#f1f3f4;color:var(--sub);}
+  .recreason{font-size:11.5px;color:var(--sub);margin-top:6px;font-style:italic;line-height:1.4;}
   .subjects{margin-top:12px;flex:1;overflow:hidden;}
   .subjects h4{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--sub);margin-bottom:6px;}
   .subj{padding:7px 0;border-bottom:1px solid #f1f3f4;}
@@ -100,6 +104,23 @@
   .rule.del{border-left:4px solid #b31412;}
   .stopbtn{border:none;background:none;color:var(--red);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;}
   .redo{margin:16px 20px 0;padding:13px;border:1.5px solid #dadce0;border-radius:14px;background:#fff;color:var(--ink);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+
+  /* auto-sweep plan */
+  .planhead{padding:16px 20px 4px;}
+  .planhead h1{font-size:22px;margin-bottom:6px;}
+  .planhead p{font-size:13.5px;color:var(--sub);line-height:1.5;}
+  .plansection{margin:18px 20px 0;}
+  .plansection h3{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--sub);margin-bottom:8px;display:flex;justify-content:space-between;}
+  .planrow{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;}
+  .planrow input[type=checkbox]{margin-top:3px;width:18px;height:18px;flex-shrink:0;}
+  .planrow .pinfo{flex:1;min-width:0;}
+  .planrow .pn{font-size:14px;font-weight:600;}
+  .planrow .pr{font-size:12px;color:var(--sub);margin-top:2px;line-height:1.4;}
+  .planempty{font-size:13.5px;color:var(--sub);padding:0 20px;}
+  .runbar{flex-shrink:0;padding:14px 20px 22px;background:#fff;border-top:1px solid #e0e3e7;}
+  .runbtn{width:100%;padding:15px;border:none;border-radius:16px;background:var(--blue);color:#fff;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:var(--shadow);}
+  .runbtn:disabled{background:#dadce0;color:#80868b;}
+  .skiplink{display:block;width:100%;text-align:center;margin-top:10px;padding:6px;font-size:13px;color:var(--sub);background:none;border:none;cursor:pointer;font-family:inherit;text-decoration:underline;}
 </style>
 </head>
 <body>
@@ -107,6 +128,7 @@
 <header>
   <div class="logo"><div class="m">✉</div>Inbox Sweeper</div>
   <div class="counts" id="counts"></div>
+  <button class="link" id="autoLink" style="display:none;margin-right:14px;">auto-sweep</button>
   <button class="link" id="rulesLink" style="display:none">rules</button>
 </header>
 <div class="progress"><i id="bar"></i></div>
@@ -115,7 +137,7 @@
 <div class="screen active" id="scr-signin">
   <div class="center">
     <h1>Sweep your inbox</h1>
-    <p>Swipe left to unsubscribe. Swipe right to auto-mark a sender's email as read. Swipe up to delete all their mail — for a week, a month, or until you say otherwise. Everything runs directly between this page and Google — nothing passes through Claude.</p>
+    <p>I'll scan your inbox and recommend what to do with each sender — unsubscribe, auto-read, or auto-delete — and you approve the batch before anything runs. Anything I'm not confident about, you swipe by hand: left to unsubscribe, right to auto-read, up to delete all. Everything runs directly between this page and Google — nothing passes through Claude.</p>
     <button class="gbtn" id="signInBtn">Sign in with Google</button>
     <p class="fine" id="signinNote">Loading Google Sign-In…</p>
   </div>
@@ -142,6 +164,15 @@
     <button class="btn small" id="doneBtn">🏁</button>
   </div>
   <div class="log" id="log"><div class="log-empty">Actions will show up here as you swipe — live, in real time.</div></div>
+</div>
+
+<!-- AUTO-SWEEP PLAN -->
+<div class="screen" id="scr-auto">
+  <div class="list" id="autoList" style="flex:1;"></div>
+  <div class="runbar">
+    <button class="runbtn" id="runAutoBtn">Run 0 actions</button>
+    <button class="skiplink" id="skipAutoBtn">Skip — I'll swipe through everything myself</button>
+  </div>
 </div>
 
 <!-- RULES -->
@@ -185,6 +216,8 @@ const CLIENT_ID = "549564806361-hckub8acr5hn8ahmktet466eh8ejqvfs.apps.googleuser
 const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.settings.basic";
 const SCAN_QUERY = "{category:promotions category:updates} newer_than:30d";
 const RULES_KEY = "sweeper.rules.v2";
+const AUTO_READ_DAYS = 90;   // 3 months — default duration auto-sweep sets for its own auto-read rules
+const AUTO_DELETE_DAYS = 30; // 1 month — shorter leash, since auto-delete is the more destructive action
 
 let accessToken = null;
 let myEmail = "";
@@ -277,14 +310,43 @@ function groupBySender(metas){
   const map=new Map();
   for (const m of metas){
     const {name,email}=parseFrom(m.from); if(!email) continue;
-    if(!map.has(email)) map.set(email,{email,name,count:0,unreadIds:[],allIds:[],subjects:[],listUnsub:'',listUnsubPost:''});
+    if(!map.has(email)) map.set(email,{email,name,count:0,unreadIds:[],allIds:[],subjects:[],listUnsub:'',listUnsubPost:'',categories:new Set()});
     const s=map.get(email); s.count++; s.allIds.push(m.id);
     if(m.labelIds.includes('UNREAD')) s.unreadIds.push(m.id);
     if(s.subjects.length<3) s.subjects.push({subject:m.subject,snippet:m.snippet});
     if(!s.listUnsub && m.listUnsub){ s.listUnsub=m.listUnsub; s.listUnsubPost=m.listUnsubPost; }
+    for (const l of m.labelIds) if (l.startsWith('CATEGORY_')) s.categories.add(l);
   }
   return [...map.values()].sort((a,b)=>b.count-a.count);
 }
+
+/* ---------- recommendation engine (heuristic, runs entirely in-browser) ---------- */
+const TRANSACTIONAL_RE = /receipt|invoice|order confirm|your order|trip (with|receipt)|ride receipt|shipped|shipping confirmation|out for delivery|\bdelivered\b|statement|payment (received|due|failed)|itinerary|reservation|booking confirm|verify your|verification code|security alert|sign-?in alert|password reset|one-time (code|password)|\botp\b|tax (document|form)|bill(ing)? (statement|due)|appointment|confirmation number|boarding pass/i;
+const BULKY_RE = /unsubscribe|newsletter|% off|\bsale\b|\bdeal(s)?\b|promo(tion)?|coupon|weekly digest|new followers?|liked your|commented on|invite(d)?|webinar|save \$|limited time|new (post|video|episode)|notification/i;
+function recommend(s){
+  const text = (s.subjects.map(x=>(x.subject||'')+' '+(x.snippet||'')).join(' ')).toLowerCase();
+  const transactional = TRANSACTIONAL_RE.test(text);
+  const bulky = BULKY_RE.test(text);
+  const promoish = s.categories.has('CATEGORY_PROMOTIONS');
+  const updateish = s.categories.has('CATEGORY_UPDATES') || s.categories.has('CATEGORY_SOCIAL') || s.categories.has('CATEGORY_FORUMS');
+  if (s.listUnsub && !transactional && promoish && s.count>=3)
+    return {action:'unsub', confidence:'high', reason:`Promotional mail with an unsubscribe link, ${s.count} in the last 30 days`};
+  if (s.listUnsub && !transactional)
+    return {action:'unsub', confidence: s.count>=2?'medium':'low', reason:'Has an unsubscribe link'};
+  if (transactional)
+    return {action:'read', confidence: s.count>=3?'high':'medium', reason:'Looks like receipts/confirmations — keeping them, just clearing the unread badge'};
+  if (!s.listUnsub && updateish && bulky && s.count>=6)
+    return {action:'delete', confidence:'medium', reason:`${s.count} notification-style emails, no unsubscribe option`};
+  if (!s.listUnsub && s.count>=6)
+    return {action:'read', confidence:'medium', reason:`Frequent sender (${s.count} in 30 days), no unsubscribe link found`};
+  return {action:'ask', confidence:'low', reason:'Not enough of a pattern yet — your call'};
+}
+const ACTION_META = {
+  unsub:{icon:'✕', label:'Unsubscribe'},
+  delete:{icon:'🗑', label:'Auto-delete'},
+  read:{icon:'✓', label:'Auto-read'},
+  ask:{icon:'❓', label:'Not sure — you decide'},
+};
 async function batchMarkRead(ids){
   for (let i=0;i<ids.length;i+=900){
     await gmail('/messages/batchModify', { method:'POST', body: JSON.stringify({ ids: ids.slice(i,i+900), removeLabelIds:['UNREAD'] }) });
@@ -359,9 +421,16 @@ async function boot(){
     const metas = await getAllMeta(ids, (d,t)=>{ $('scanProgress').textContent = `Reading headers ${d}/${t}`; });
     const ruleEmails = new Set(rules.map(r=>r.email));
     senders = groupBySender(metas).filter(s=>!ruleEmails.has(s.email));
+    senders.forEach(s=> s.rec = recommend(s));
     idx=0; history=[];
     $('rulesLink').style.display = '';
-    render();
+    if (senders.length){
+      $('autoLink').style.display = '';
+      renderAutoPlan();
+      show('scr-auto');
+    } else {
+      render(); // nothing found — render() shows the empty/finish state on its own
+    }
   }catch(e){
     alert('Scan failed: '+e.message);
     show('scr-signin');
@@ -375,11 +444,15 @@ function makeCard(i,depth){
   const d = senders[i]; const el = document.createElement('div');
   el.className = 'card'+(depth===1?' behind':depth===2?' behind2':'');
   const init = (d.name.replace(/[^A-Za-z0-9 ]/g,'').trim()[0]||'?').toUpperCase();
+  const rec = d.rec || {action:'ask',confidence:'low',reason:''};
+  const rm = ACTION_META[rec.action];
   el.innerHTML = `
     <div class="from"><div class="avatar" style="background:${avColor(d.email)}">${init}</div>
       <div class="who"><div class="name">${d.name}</div><div class="addr">${d.email}</div></div></div>
     <div class="meta"><span class="chip">${d.count} email${d.count>1?'s':''} / 30 days</span>
-      ${d.listUnsub?'<span class="chip ok">unsubscribe available</span>':'<span class="chip warn">no unsubscribe found</span>'}</div>
+      ${d.listUnsub?'<span class="chip ok">unsubscribe available</span>':'<span class="chip warn">no unsubscribe found</span>'}
+      <span class="chip rec conf-${rec.confidence}">${rm.icon} suggests: ${rm.label}</span></div>
+    ${rec.reason?`<div class="recreason">${escapeHtml(rec.reason)}</div>`:''}
     <div class="subjects"><h4>Recent emails</h4>
       ${d.subjects.map(x=>`<div class="subj"><div class="s">${escapeHtml(x.subject)}</div><div class="p">${escapeHtml(x.snippet||'')}</div></div>`).join('')}
     </div>
@@ -507,6 +580,131 @@ $('yesBtn').addEventListener('click', ()=>{ if(!topCard())return; openSheet('rea
 $('skipBtn').addEventListener('click', ()=>{ const c=topCard(); if(!c)return; c.style.transition='transform .3s ease,opacity .3s ease'; c.style.transform='translateY(-60px)'; c.style.opacity='0'; logRow('info', `Kept <b>${senders[idx].name}</b>`); advance(); });
 $('undoBtn').addEventListener('click', ()=>{ if(!history.length)return; idx=history.pop(); logRow('info','Undid last action (note: any Gmail change already made was NOT reversed — undo only rewinds the card).'); render(); });
 $('doneBtn').addEventListener('click', ()=>{ idx=senders.length; finish(); });
+
+/* ---------- auto-sweep: recommend, review, run ---------- */
+let autoPlan = null;
+function monthsText(days){ const m = Math.round(days/30); return `${m} month${m!==1?'s':''}`; }
+const SECTION_META = {
+  unsub:{title:'Unsubscribe', icon:'✕'},
+  delete:{title:`Auto-delete · existing → Trash now, future auto-trashed for ${monthsText(AUTO_DELETE_DAYS)}`, icon:'🗑'},
+  read:{title:`Auto-read · existing marked read now, future arrives read for ${monthsText(AUTO_READ_DAYS)}`, icon:'✓'},
+};
+function computeAutoPlan(){
+  const plan = { unsub:[], delete:[], read:[] };
+  for (const s of senders){
+    const rec = s.rec;
+    if (!rec || rec.action==='ask') continue;
+    plan[rec.action].push({ sender:s, checked: rec.confidence==='high' });
+  }
+  return plan;
+}
+function planCount(){ return ['unsub','delete','read'].reduce((n,k)=>n+autoPlan[k].filter(x=>x.checked).length,0); }
+function updateRunBtn(){
+  const n = planCount(); const btn = $('runAutoBtn');
+  btn.textContent = n ? `Run ${n} action${n!==1?'s':''}` : 'Nothing selected';
+  btn.disabled = n===0;
+}
+function renderAutoPlan(){
+  autoPlan = computeAutoPlan();
+  const box = $('autoList'); box.innerHTML='';
+  const askCount = senders.filter(s=>!s.rec || s.rec.action==='ask').length;
+  const head = document.createElement('div'); head.className='planhead';
+  head.innerHTML = `<h1>Auto-sweep</h1><p>Based on the pattern in each sender's emails, here's what I'd do. Checked items run when you tap Run — everything else (including ${askCount} sender${askCount!==1?'s':''} I'm not confident enough to guess on) stays for you to swipe through by hand.</p>`;
+  box.appendChild(head);
+  let any = false;
+  for (const key of ['unsub','delete','read']){
+    const items = autoPlan[key];
+    if (!items.length) continue;
+    any = true;
+    const sec = document.createElement('div'); sec.className='plansection';
+    const h3 = document.createElement('h3');
+    h3.innerHTML = `<span>${SECTION_META[key].icon} ${SECTION_META[key].title}</span><span class="cnt">${items.filter(x=>x.checked).length}/${items.length}</span>`;
+    sec.appendChild(h3);
+    for (const item of items){
+      const row = document.createElement('label'); row.className='planrow';
+      row.innerHTML = `<input type="checkbox" ${item.checked?'checked':''}>
+        <div class="pinfo"><div class="pn">${escapeHtml(item.sender.name)}</div>
+        <div class="pr">${escapeHtml(item.sender.email)} · ${item.sender.count} emails · ${escapeHtml(item.sender.rec.reason)}</div></div>`;
+      const cb = row.querySelector('input');
+      cb.addEventListener('change', ()=>{ item.checked = cb.checked; h3.querySelector('.cnt').textContent = `${items.filter(x=>x.checked).length}/${items.length}`; updateRunBtn(); });
+      sec.appendChild(row);
+    }
+    box.appendChild(sec);
+  }
+  if (!any){
+    const p=document.createElement('p'); p.className='planempty';
+    p.textContent = "I don't have a confident recommendation for anything in this batch — everything needs your call.";
+    box.appendChild(p);
+  }
+  updateRunBtn();
+}
+async function runAutoSweep(){
+  const chosen = { unsub: autoPlan.unsub.filter(x=>x.checked).map(x=>x.sender),
+                    delete: autoPlan.delete.filter(x=>x.checked).map(x=>x.sender),
+                    read: autoPlan.read.filter(x=>x.checked).map(x=>x.sender) };
+  const total = chosen.unsub.length + chosen.delete.length + chosen.read.length;
+  if (!total) return;
+  let done = 0;
+  const btn = $('runAutoBtn'); btn.disabled = true;
+  const bump = ()=>{ done++; btn.textContent = `Running… ${done}/${total}`; };
+  $('skipAutoBtn').style.display = 'none';
+  const handled = new Set();
+
+  // STEP 1 — must run synchronously, before any await: this is still inside the Run button's
+  // user-gesture window, which is what lets each window.open() below escape the popup blocker.
+  const httpsQueue = [], mailtoQueue = [];
+  for (const s of chosen.unsub){
+    const {https, mailto} = parseUnsub(s.listUnsub||'');
+    if (https) httpsQueue.push({s,https});
+    else if (mailto) mailtoQueue.push({s,mailto});
+    else logRow('warn', `<b>${s.name}</b> — unsubscribe link couldn't be parsed. Left for you to swipe.`);
+  }
+  for (const {s,https} of httpsQueue){
+    const w = window.open('', '_blank');
+    if (w){ w.location.href = https; handled.add(s.email); logRow('ok', `<b>${s.name}</b> — opened their unsubscribe page in a new tab. Confirm there if it asks.`); }
+    else { logRow('warn', `<b>${s.name}</b> — your browser blocked the popup. Swipe left on this one by hand.`); }
+    bump();
+  }
+
+  // STEP 2 — async from here on: silent one-click POSTs, mailto sends, filters + batch actions.
+  for (const {s,https} of httpsQueue){
+    if (!handled.has(s.email) || !/one-?click/i.test(s.listUnsubPost||'')) continue;
+    try{ await fetch(https, {method:'POST', mode:'no-cors', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'List-Unsubscribe=One-Click'}); }catch(e){}
+  }
+  for (const {s,mailto} of mailtoQueue){
+    try{ await sendUnsubEmail(mailto); handled.add(s.email); logRow('ok', `<b>${s.name}</b> — unsubscribe email sent ✓`); }
+    catch(e){ logRow('err', `<b>${s.name}</b> — unsubscribe failed: ${e.message}`); }
+    bump();
+  }
+  for (const s of chosen.delete){
+    try{
+      const filterId = await createAutoDeleteFilter(s.email);
+      if (s.allIds.length) await batchTrash(s.allIds);
+      rules.push({ type:'delete', email:s.email, name:s.name, filterId, createdAt: Date.now(), expiresAt: Date.now()+AUTO_DELETE_DAYS*86400000 });
+      saveRules(rules); handled.add(s.email);
+      logRow('ok', `<b>${s.name}</b> — ${s.allIds.length} email${s.allIds.length!==1?'s':''} moved to Trash, auto-delete rule live (~${Math.round(AUTO_DELETE_DAYS/30)} mo) ✓`);
+    }catch(e){ logRow('err', `<b>${s.name}</b> — failed: ${e.message}`); }
+    bump();
+  }
+  for (const s of chosen.read){
+    try{
+      const filterId = await createAutoReadFilter(s.email);
+      if (s.allIds.length) await batchMarkRead(s.allIds);
+      rules.push({ type:'read', email:s.email, name:s.name, filterId, createdAt: Date.now(), expiresAt: Date.now()+AUTO_READ_DAYS*86400000 });
+      saveRules(rules); handled.add(s.email);
+      logRow('ok', `<b>${s.name}</b> — ${s.allIds.length} email${s.allIds.length!==1?'s':''} marked read, auto-read rule live (~${Math.round(AUTO_READ_DAYS/30)} mo) ✓`);
+    }catch(e){ logRow('err', `<b>${s.name}</b> — failed: ${e.message}`); }
+    bump();
+  }
+
+  senders = senders.filter(s=>!handled.has(s.email));
+  idx = 0; history = [];
+  logRow('info', `Auto-sweep finished — ${handled.size} sender${handled.size!==1?'s':''} handled automatically. ${senders.length} left for you to swipe through by hand.`);
+  render();
+}
+$('autoLink').addEventListener('click', ()=>{ renderAutoPlan(); show('scr-auto'); });
+$('runAutoBtn').addEventListener('click', runAutoSweep);
+$('skipAutoBtn').addEventListener('click', ()=>{ render(); });
 
 /* ---------- rules screen ---------- */
 $('rulesLink').addEventListener('click', ()=>{ renderRules(); show('scr-rules'); });
