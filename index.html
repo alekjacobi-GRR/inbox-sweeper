@@ -21,8 +21,8 @@
   .link{font-size:13px;font-weight:600;color:var(--blue);cursor:pointer;background:none;border:none;font-family:inherit;}
   .progress{height:4px;background:#e0e3e7;flex-shrink:0;}
   .progress i{display:block;height:100%;width:0%;background:var(--blue);transition:width .3s ease;border-radius:0 2px 2px 0;}
-  .hints{display:flex;justify-content:space-between;padding:8px 20px;flex-shrink:0;font-size:12px;font-weight:600;letter-spacing:.3px;}
-  .hints .l{color:var(--red);} .hints .r{color:var(--green);}
+  .hints{display:flex;justify-content:space-between;padding:8px 14px;flex-shrink:0;font-size:11px;font-weight:600;letter-spacing:.2px;}
+  .hints .l{color:var(--red);} .hints .r{color:var(--green);} .hints .u{color:#b31412;}
 
   /* screens */
   .screen{flex:1;overflow:hidden;display:none;flex-direction:column;}
@@ -59,13 +59,14 @@
   .stamp{position:absolute;top:24px;padding:7px 14px;border-radius:8px;font-size:20px;font-weight:800;letter-spacing:1px;border:3px solid;opacity:0;transform:rotate(-14deg);pointer-events:none;background:rgba(255,255,255,.85);}
   .stamp.no{left:16px;color:var(--red);border-color:var(--red);}
   .stamp.yes{right:16px;color:var(--green);border-color:var(--green);transform:rotate(14deg);}
+  .stamp.del{left:50%;top:14px;color:#b31412;border-color:#b31412;transform:translateX(-50%);}
 
-  .actions{display:flex;justify-content:center;align-items:center;gap:16px;padding:4px 0 6px;flex-shrink:0;}
+  .actions{display:flex;justify-content:center;align-items:center;gap:10px;padding:4px 0 6px;flex-shrink:0;}
   .btn{border:none;border-radius:50%;cursor:pointer;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;background:#fff;transition:transform .12s ease;}
   .btn:active{transform:scale(.9);}
-  .btn.big{width:58px;height:58px;font-size:24px;}
-  .btn.small{width:44px;height:44px;font-size:13px;color:var(--sub);font-weight:700;}
-  .btn.unsub{color:var(--red);} .btn.read{color:var(--green);}
+  .btn.big{width:54px;height:54px;font-size:22px;}
+  .btn.small{width:42px;height:42px;font-size:12.5px;color:var(--sub);font-weight:700;}
+  .btn.unsub{color:var(--red);} .btn.read{color:var(--green);} .btn.del{color:#b31412;font-size:20px;}
 
   /* live log */
   .log{flex-shrink:0;max-height:96px;overflow-y:auto;margin:0 16px 10px;background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:8px 12px;}
@@ -87,6 +88,7 @@
   .dur small{display:block;font-weight:400;font-size:11.5px;color:var(--sub);margin-top:3px;}
   .dur:active{background:#e8f0fe;border-color:var(--blue);}
   .dur.forever{grid-column:1/-1;background:#e6f4ea;border-color:#188038;color:#0d652d;}
+  .dur.onceOnly{grid-column:1/-1;background:#fce8e6;border-color:#b31412;color:#8f1c14;}
   .cancel{margin-top:14px;width:100%;padding:12px;border:none;background:none;color:var(--blue);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
 
   /* rules & done screens */
@@ -95,6 +97,7 @@
   .rule .info{flex:1;min-width:0;}
   .rule .n{font-size:14.5px;font-weight:600;}
   .rule .d{font-size:12px;color:var(--sub);margin-top:2px;}
+  .rule.del{border-left:4px solid #b31412;}
   .stopbtn{border:none;background:none;color:var(--red);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;}
   .redo{margin:16px 20px 0;padding:13px;border:1.5px solid #dadce0;border-radius:14px;background:#fff;color:var(--ink);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
 </style>
@@ -112,7 +115,7 @@
 <div class="screen active" id="scr-signin">
   <div class="center">
     <h1>Sweep your inbox</h1>
-    <p>Swipe left to unsubscribe. Swipe right to auto-mark a sender's email as read — for a week, a month, or until you say otherwise. Everything runs directly between this page and Google — nothing passes through Claude.</p>
+    <p>Swipe left to unsubscribe. Swipe right to auto-mark a sender's email as read. Swipe up to delete all their mail — for a week, a month, or until you say otherwise. Everything runs directly between this page and Google — nothing passes through Claude.</p>
     <button class="gbtn" id="signInBtn">Sign in with Google</button>
     <p class="fine" id="signinNote">Loading Google Sign-In…</p>
   </div>
@@ -128,13 +131,14 @@
 
 <!-- DECK -->
 <div class="screen" id="scr-deck">
-  <div class="hints"><span class="l">← swipe left = UNSUBSCRIBE</span><span class="r">swipe right = AUTO-READ →</span></div>
+  <div class="hints"><span class="l">← left = UNSUBSCRIBE</span><span class="u">↑ up = DELETE ALL</span><span class="r">right = AUTO-READ →</span></div>
   <div class="stage" id="stage"></div>
   <div class="actions">
     <button class="btn small" id="undoBtn">↩</button>
     <button class="btn big unsub" id="noBtn">✕</button>
-    <button class="btn small" id="skipBtn">keep</button>
+    <button class="btn big del" id="delBtn">🗑</button>
     <button class="btn big read" id="yesBtn">✓</button>
+    <button class="btn small" id="skipBtn">keep</button>
     <button class="btn small" id="doneBtn">🏁</button>
   </div>
   <div class="log" id="log"><div class="log-empty">Actions will show up here as you swipe — live, in real time.</div></div>
@@ -166,6 +170,7 @@
       <button class="dur" data-days="90" data-label="3 months">3 months<small>long break</small></button>
       <button class="dur" data-days="180" data-label="6 months">6 months<small>almost gone</small></button>
       <button class="dur forever" data-days="" data-label="until you say otherwise">♾ Until I say otherwise</button>
+      <button class="dur onceOnly" id="onceOnlyBtn" data-days="once" data-label="just this once" style="display:none">Just this once<small>clean up existing only — no future rule</small></button>
     </div>
     <button class="cancel" id="sheetCancel">Cancel</button>
   </div>
@@ -289,7 +294,17 @@ async function createAutoReadFilter(fromEmail){
   const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{removeLabelIds:['UNREAD']} }) });
   return f.id;
 }
-async function deleteFilterSafe(filterId){ try{ await gmail(`/settings/filters/${filterId}`, {method:'DELETE'}); }catch(e){} }
+async function batchTrash(ids){
+  for (let i=0;i<ids.length;i+=900){
+    await gmail('/messages/batchModify', { method:'POST', body: JSON.stringify({ ids: ids.slice(i,i+900), addLabelIds:['TRASH'], removeLabelIds:['INBOX'] }) });
+  }
+}
+async function createAutoDeleteFilter(fromEmail){
+  // same as Gmail's own "Delete it" filter action: add TRASH, remove INBOX on every matching new message
+  const f = await gmail('/settings/filters', { method:'POST', body: JSON.stringify({ criteria:{from:fromEmail}, action:{addLabelIds:['TRASH'], removeLabelIds:['INBOX']} }) });
+  return f.id;
+}
+async function deleteFilterSafe(filterId){ if(!filterId) return; try{ await gmail(`/settings/filters/${filterId}`, {method:'DELETE'}); }catch(e){} }
 function parseUnsub(listUnsub){
   const urls=[...listUnsub.matchAll(/<([^>]+)>/g)].map(m=>m[1]);
   return { https: urls.find(u=>u.startsWith('http')), mailto: urls.find(u=>u.startsWith('mailto:')) };
@@ -349,7 +364,7 @@ function makeCard(i,depth){
     <div class="subjects"><h4>Recent emails</h4>
       ${d.subjects.map(x=>`<div class="subj"><div class="s">${escapeHtml(x.subject)}</div><div class="p">${escapeHtml(x.snippet||'')}</div></div>`).join('')}
     </div>
-    <div class="stamp no">UNSUB</div><div class="stamp yes">AUTO-READ</div>`;
+    <div class="stamp no">UNSUB</div><div class="stamp yes">AUTO-READ</div><div class="stamp del">DELETE</div>`;
   return el;
 }
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
@@ -364,23 +379,29 @@ function render(){
 }
 function attachDrag(card){
   if (!card) return;
-  let sx=0,sy=0,dx=0,drag=false;
-  const no=card.querySelector('.stamp.no'), yes=card.querySelector('.stamp.yes');
-  const down=e=>{drag=true;card.classList.add('dragging');const p=e.touches?e.touches[0]:e;sx=p.clientX;sy=p.clientY;};
-  const move=e=>{ if(!drag)return; const p=e.touches?e.touches[0]:e; dx=p.clientX-sx; const dy=p.clientY-sy;
-    card.style.transform=`translate(${dx}px,${dy*0.35}px) rotate(${dx/16}deg)`;
-    no.style.opacity=Math.min(1,Math.max(0,-dx/90)); yes.style.opacity=Math.min(1,Math.max(0,dx/90));
+  let sx=0,sy=0,dx=0,dy=0,drag=false;
+  const no=card.querySelector('.stamp.no'), yes=card.querySelector('.stamp.yes'), del=card.querySelector('.stamp.del');
+  const down=e=>{drag=true;card.classList.add('dragging');const p=e.touches?e.touches[0]:e;sx=p.clientX;sy=p.clientY;dx=0;dy=0;};
+  const move=e=>{ if(!drag)return; const p=e.touches?e.touches[0]:e; dx=p.clientX-sx; dy=p.clientY-sy;
+    const vertical = Math.abs(dy) > Math.abs(dx);
+    card.style.transform=`translate(${dx}px,${dy*(vertical?0.85:0.35)}px) rotate(${vertical?0:dx/16}deg)`;
+    no.style.opacity=vertical?0:Math.min(1,Math.max(0,-dx/90));
+    yes.style.opacity=vertical?0:Math.min(1,Math.max(0,dx/90));
+    del.style.opacity=(vertical&&dy<0)?Math.min(1,Math.max(0,-dy/90)):0;
     if(e.cancelable) e.preventDefault(); };
   const up=()=>{ if(!drag)return; drag=false; card.classList.remove('dragging');
-    if(dx<-100){ fly(card,-1); doUnsub(); }
-    else if(dx>100){ fly(card,1); openSheet(); }
-    else{ card.style.transition='transform .25s ease'; card.style.transform=''; no.style.opacity=0; yes.style.opacity=0; setTimeout(()=>card.style.transition='',260); }
-    dx=0; };
+    const vertical = Math.abs(dy) > Math.abs(dx);
+    if(vertical && dy<-100){ flyUp(card); openSheet('delete'); }
+    else if(!vertical && dx<-100){ fly(card,-1); doUnsub(); }
+    else if(!vertical && dx>100){ fly(card,1); openSheet('read'); }
+    else{ card.style.transition='transform .25s ease'; card.style.transform=''; no.style.opacity=0; yes.style.opacity=0; del.style.opacity=0; setTimeout(()=>card.style.transition='',260); }
+    dx=0; dy=0; };
   card.addEventListener('mousedown',down); card.addEventListener('touchstart',down,{passive:true});
   window.addEventListener('mousemove',move); window.addEventListener('touchmove',move,{passive:false});
   window.addEventListener('mouseup',up); window.addEventListener('touchend',up);
 }
 function fly(card,dir){ card.style.transition='transform .35s ease, opacity .35s ease'; card.style.transform=`translate(${dir*window.innerWidth*1.2}px,-40px) rotate(${dir*22}deg)`; card.style.opacity='0'; }
+function flyUp(card){ card.style.transition='transform .35s ease, opacity .35s ease'; card.style.transform=`translate(0px,${-window.innerHeight*1.1}px) rotate(0deg)`; card.style.opacity='0'; }
 function topCard(){ return $('stage').lastElementChild; }
 function advance(){ idx++; history.push(idx-1); setTimeout(render,180); }
 
@@ -410,33 +431,60 @@ async function doUnsub(){
     logRow('err', `<b>${s.name}</b> — failed: ${e.message}`);
   }
 }
-let pendingDur = null;
-function openSheet(){
+let pendingAction = 'read';
+function openSheet(action){
+  pendingAction = action;
   const s = senders[idx];
-  $('sheetTitle').textContent = `Auto-read "${s.name}"`;
-  $('sheetSub').textContent = `${s.count} existing email${s.count>1?'s':''} get marked read now, and every new one from ${s.email} arrives already read. For how long?`;
+  const onceBtn = $('onceOnlyBtn');
+  if (action === 'delete'){
+    $('sheetTitle').textContent = `Delete all from "${s.name}"?`;
+    $('sheetSub').textContent = `${s.count} existing email${s.count>1?'s':''} move to Trash now (recoverable there for 30 days, like normal Gmail delete). Want new mail from ${s.email} auto-deleted too — and for how long?`;
+    onceBtn.style.display = '';
+  } else {
+    $('sheetTitle').textContent = `Auto-read "${s.name}"`;
+    $('sheetSub').textContent = `${s.count} existing email${s.count>1?'s':''} get marked read now, and every new one from ${s.email} arrives already read. For how long?`;
+    onceBtn.style.display = 'none';
+  }
   $('overlay').classList.add('show');
 }
 document.querySelectorAll('.dur').forEach(b=>b.addEventListener('click', async ()=>{
   $('overlay').classList.remove('show');
-  const days = b.dataset.days ? parseInt(b.dataset.days,10) : null;
+  const isOnce = b.dataset.days === 'once';
+  const days = (!isOnce && b.dataset.days) ? parseInt(b.dataset.days,10) : null;
   const label = b.dataset.label;
+  const action = pendingAction;
   const s = senders[idx]; advance();
-  logRow('info', `<b>${s.name}</b> — setting up auto-read (${label})…`);
-  try{
-    const filterId = await createAutoReadFilter(s.email);
-    if (s.allIds.length) await batchMarkRead(s.allIds);
-    const rule = { email:s.email, name:s.name, filterId, createdAt: Date.now(), expiresAt: days ? Date.now()+days*86400000 : null };
-    rules.push(rule); saveRules(rules);
-    logRow('ok', `<b>${s.name}</b> — ${s.allIds.length} email${s.allIds.length!==1?'s':''} marked read, auto-read rule live in Gmail ✓`);
-  }catch(e){
-    logRow('err', `<b>${s.name}</b> — failed: ${e.message}`);
+  if (action === 'delete'){
+    logRow('info', `<b>${s.name}</b> — moving to Trash${isOnce?'':' + setting up auto-delete ('+label+')'}…`);
+    try{
+      const filterId = isOnce ? null : await createAutoDeleteFilter(s.email);
+      if (s.allIds.length) await batchTrash(s.allIds);
+      if (!isOnce){
+        const rule = { type:'delete', email:s.email, name:s.name, filterId, createdAt: Date.now(), expiresAt: days ? Date.now()+days*86400000 : null };
+        rules.push(rule); saveRules(rules);
+      }
+      logRow('ok', `<b>${s.name}</b> — ${s.allIds.length} email${s.allIds.length!==1?'s':''} moved to Trash${isOnce?' ✓':', auto-delete rule live in Gmail ✓'}`);
+    }catch(e){
+      logRow('err', `<b>${s.name}</b> — failed: ${e.message}`);
+    }
+  } else {
+    logRow('info', `<b>${s.name}</b> — setting up auto-read (${label})…`);
+    try{
+      const filterId = await createAutoReadFilter(s.email);
+      if (s.allIds.length) await batchMarkRead(s.allIds);
+      const rule = { type:'read', email:s.email, name:s.name, filterId, createdAt: Date.now(), expiresAt: days ? Date.now()+days*86400000 : null };
+      rules.push(rule); saveRules(rules);
+      logRow('ok', `<b>${s.name}</b> — ${s.allIds.length} email${s.allIds.length!==1?'s':''} marked read, auto-read rule live in Gmail ✓`);
+    }catch(e){
+      logRow('err', `<b>${s.name}</b> — failed: ${e.message}`);
+    }
   }
 }));
 $('sheetCancel').addEventListener('click', ()=>{ $('overlay').classList.remove('show'); render(); });
 
 $('noBtn').addEventListener('click', ()=>{ const c=topCard(); if(!c)return; fly(c,-1); doUnsub(); });
-$('yesBtn').addEventListener('click', ()=>{ if(!topCard())return; openSheet(); });
+$('delBtn').addEventListener('click', ()=>{ if(!topCard())return; openSheet('delete'); });
+$('yesBtn').addEventListener('click', ()=>{ if(!topCard())return; openSheet('read'); });
 $('skipBtn').addEventListener('click', ()=>{ const c=topCard(); if(!c)return; c.style.transition='transform .3s ease,opacity .3s ease'; c.style.transform='translateY(-60px)'; c.style.opacity='0'; logRow('info', `Kept <b>${senders[idx].name}</b>`); advance(); });
 $('undoBtn').addEventListener('click', ()=>{ if(!history.length)return; idx=history.pop(); logRow('info','Undid last action (note: any Gmail change already made was NOT reversed — undo only rewinds the card).'); render(); });
 $('doneBtn').addEventListener('click', ()=>{ idx=senders.length; finish(); });
@@ -444,12 +492,13 @@ $('doneBtn').addEventListener('click', ()=>{ idx=senders.length; finish(); });
 /* ---------- rules screen ---------- */
 $('rulesLink').addEventListener('click', ()=>{ renderRules(); show('scr-rules'); });
 function renderRules(){
-  const box = $('rulesList'); box.innerHTML = `<h1 style="margin-bottom:12px;">Auto-read rules</h1>`;
+  const box = $('rulesList'); box.innerHTML = `<h1 style="margin-bottom:12px;">Active rules</h1>`;
   if (!rules.length) { box.innerHTML += `<p style="color:var(--sub);font-size:14px;">No active rules.</p>`; }
   for (const r of rules){
     const days = r.expiresAt ? Math.max(0, Math.ceil((r.expiresAt-Date.now())/86400000)) : null;
-    const div = document.createElement('div'); div.className='rule';
-    div.innerHTML = `<div class="info"><div class="n">${r.name}</div><div class="d">${r.email} · ${days===null?'∞ until you stop it':(days+' day'+(days!==1?'s':'')+' left')}</div></div>`;
+    const isDel = r.type === 'delete';
+    const div = document.createElement('div'); div.className='rule'+(isDel?' del':'');
+    div.innerHTML = `<div class="info"><div class="n">${isDel?'🗑':'✓'} ${r.name}</div><div class="d">${isDel?'auto-delete':'auto-read'} · ${r.email} · ${days===null?'∞ until you stop it':(days+' day'+(days!==1?'s':'')+' left')}</div></div>`;
     const btn = document.createElement('button'); btn.className='stopbtn'; btn.textContent='stop';
     btn.addEventListener('click', async ()=>{ await deleteFilterSafe(r.filterId); rules = rules.filter(x=>x.email!==r.email); saveRules(rules); renderRules(); });
     div.appendChild(btn); box.appendChild(div);
